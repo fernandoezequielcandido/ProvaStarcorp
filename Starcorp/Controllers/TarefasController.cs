@@ -28,7 +28,7 @@ namespace Starcorp.Controllers
           {
               return NotFound();
           }
-            return await _db.Tarefas.Where(x => x.Concluida == false).ToListAsync();
+            return await _db.Tarefas.Where(x => x.Concluida == false).OrderBy(b => b.DataParaConclusao).ToListAsync();
         }
 
         [HttpGet("{id}")]
