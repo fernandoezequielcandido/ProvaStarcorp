@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Starcorp.Models;
 using Starcorp.Repository;
+using Dapper;
+using Microsoft.Data.SqlClient;
 
 namespace Starcorp.Controllers
 {
@@ -15,67 +17,63 @@ namespace Starcorp.Controllers
     public class TarefasController : ControllerBase
     {
         private readonly TestDbContext _db;
+        private readonly IConfiguration _configuration;
 
-        public TarefasController(TestDbContext db)
+        public TarefasController(TestDbContext db, IConfiguration configuration)
         {
             _db = db;
+            _configuration = configuration;
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Tarefa>>> GetTarefas()
+        public ActionResult<IEnumerable<Tarefa>> GetTarefas()
         {
-          if (_db.Tarefas == null)
-          {
-              return NotFound();
-          }
-            return await _db.Tarefas.Where(x => x.Concluida == false).OrderBy(b => b.DataParaConclusao).ToListAsync();
-        }
-
-        [HttpGet("{id}")]
-        public async Task<ActionResult<Tarefa>> GetTarefa(int id)
-        {
-          if (_db.Tarefas == null)
-          {
-              return NotFound();
-          }
-            var tarefa = await _db.Tarefas.FindAsync(id);
-
-            if (tarefa == null)
+            using (var connection = new SqlConnection(_configuration.GetConnectionString("FernandoConnection")))
             {
-                return NotFound();
-            }
+                var tarefas = connection.Query<Tarefa>("SELECT [ID], [Nome], [DataParaConclusao], [Concluida] FROM Tarefas WHERE Concluida = 'false' ORDER BY [DataParaConclusao]");
 
-            return tarefa;
+                if (tarefas == null)
+                {
+                    return NotFound();
+                }
+
+                return tarefas.ToList();
+            }
         }
 
         [HttpPost]
         [Route("ConcluirTarefa")]
-        public async Task<IActionResult> ConcluirTarefa(Tarefa tarefa)
+        public IActionResult ConcluirTarefa(Tarefa tarefa)
         {
-            tarefa.Concluida = true;
-            Tarefa? t = await _db.Tarefas.FirstOrDefaultAsync(x => x.Nome == tarefa.Nome);
-
-            if (t != null)
-            { 
-                t.Concluida = true;
-                await _db.SaveChangesAsync();
-            }
-            else { return NotFound(); }
+            var updateSql = @"UPDATE [Tarefas] SET [Concluida] = @Concluida WHERE [Id] = @Id";
            
+            using (var connection = new SqlConnection(_configuration.GetConnectionString("FernandoConnection")))
+            {
+                connection.Execute(updateSql, new
+                {
+                    Concluida = true,
+                    tarefa.Id
+                });
+            }
             return NoContent();
         }
 
         [HttpPost]
-        public async Task<ActionResult<Tarefa>> PostTarefa(Tarefa tarefa)
+        public ActionResult<Tarefa> PostTarefa(Tarefa tarefa)
         {
-          if (_db.Tarefas == null)
-          {
-              return Problem("Entity set 'TestDbContext.Tarefas'  is null.");
-          }
-          _db.Tarefas.Add(tarefa);
-          await _db.SaveChangesAsync();
+            var insertSql = @"INSERT INTO [Tarefas] (Nome, DataParaConclusao, Concluida) OUTPUT INSERTED.Id VALUES(@Nome, @DataParaConclusao, @Concluida) ";
+            
+            using (var connection = new SqlConnection(_configuration.GetConnectionString("FernandoConnection")))
+            {
+                int idTarefa = connection.QuerySingle<int>(insertSql, new {
+                    tarefa.Nome,
+                    tarefa.DataParaConclusao,
+                    tarefa.Concluida});
 
-          return CreatedAtAction("GetTarefa", new { id = tarefa.Id }, tarefa);
+                tarefa.Id = idTarefa;
+                return Ok(tarefa);
+            }
+            
         }
     }
 }
